@@ -8,6 +8,7 @@
 [Bb]uilds/
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
+.idea/
 BuildReport.txt   # 打包报告
 *.apk             # 安卓包
 *.aab             # 安卓App Bundle
@@ -34,6 +35,7 @@ UserSettings/     # 个人编辑器设置（多人协作建议忽略）
 *.userprefs
 *.pidb
 *.booproj
+
 
 # ==============================================
 # 操作系统文件（通用忽略）
