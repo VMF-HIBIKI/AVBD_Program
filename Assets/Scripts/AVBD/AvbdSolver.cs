@@ -14,7 +14,5 @@ namespace AVBD
 
         public List<DetectionBody> Bodies;
         
-        
-        
     }
 }
