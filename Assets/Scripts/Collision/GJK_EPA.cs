@@ -202,8 +202,8 @@ namespace Collision
                     // ensure normal points from A to B
                     
                     float3 n = closest.Normal;
-
-
+                    
+                    /*
                     // 原点在最近面上的投影点（Minkowski差内的点）
                     float3 proj = n * minDist;
 
@@ -254,13 +254,11 @@ namespace Collision
                         n = math.normalize(n);
 
                     // 穿透深度（沿法线方向的重叠距离）
-                    float depth = math.dot(n, contactA - contactB);
+                    float depth = math.dot(n, contactA - contactB);*/
 
                     result.HasResult = true;
                     result.Normal = n;
-                    result.Depth = depth;
-                    result.ContactA = contactA;
-                    result.ContactB = contactB;
+                    result.Depth = pDist;
 
                     faces.Dispose();
                     return;
@@ -344,79 +342,260 @@ namespace Collision
             return new SupportPoint(pa,pb);
         }
         
-        public static float3 ClosestPointOnTriangleToOrigin(float3 a, float3 b, float3 c, out float u, out float v, out float w)
+        // 获取特征面的顶点列表（世界坐标）和面的信息
+        private static void GetFeatureFace(
+            in NativeConvex convex, 
+            float3 searchDir, // 指向凸包外部的法线方向
+            ref NativeList<float3> faceVertices, 
+            out float3 faceNormal, 
+            out float3 faceCenter)
         {
-            float3 ab = b - a;
-            float3 ac = c - a;
-            float3 ap = -a;
+            faceVertices.Clear();
+            faceNormal = float3.zero;
+            faceCenter = float3.zero;
 
-            float d1 = math.dot(ab, ap);
-            float d2 = math.dot(ac, ap);
+            // 1. 遍历所有面，找到法线与 searchDir 点积最大的面
+            int bestPlaneIndex = -1;
+            float maxDot = -float.MaxValue;
 
-            // 顶点 A 区域
-            if (d1 <= 0f && d2 <= 0f)
+            // 缓存旋转矩阵，用于将局部法线转世界
+            float3x3 rotMatrix = new float3x3(convex.Transform.rot);
+
+            for (int i = 0; i < convex.Hull.PlaneCount; i++)
             {
-                u = 1f; v = 0f; w = 0f;
-                return a;
+                NativePlane plane = convex.Hull.Planes[i];
+                float3 worldNormal = math.mul(rotMatrix, plane.Normal);
+                float dot = math.dot(worldNormal, searchDir);
+
+                if (dot > maxDot)
+                {
+                    maxDot = dot;
+                    bestPlaneIndex = i;
+                    faceNormal = worldNormal;
+                }
             }
 
-            float3 bp = -b;
-            float d3 = math.dot(ab, bp);
-            float d4 = math.dot(ac, bp);
+            if (bestPlaneIndex == -1) return;
 
-            // 顶点 B 区域
-            if (d3 >= 0f && d4 <= d3)
+            // 2. 提取该面的所有顶点
+            NativePlane bestPlane = convex.Hull.Planes[bestPlaneIndex];
+            int startHeIndex = bestPlane.FirstHalfedge;
+            int currHeIndex = startHeIndex;
+    
+            // 遍历半边循环
+            do
             {
-                u = 0f; v = 1f; w = 0f;
-                return b;
+                NativeHalfEdge he = convex.Hull.Edges[currHeIndex];
+                NativeVertex v = convex.Hull.Vertices[he.StartVertex];
+
+                // 局部转世界： Scale -> Rotate -> Translate
+                float3 localPos = v.Position * convex.Scale;
+                float3 worldPos = math.transform(convex.Transform, localPos);
+
+                faceVertices.Add(worldPos);
+                faceCenter += worldPos;
+
+                currHeIndex = he.NextHalfedge;
+            } 
+            while (currHeIndex != startHeIndex);
+
+            faceCenter /= faceVertices.Length;
+        }
+        
+        // 用一个平面裁剪多边形，保留平面“内侧”的点
+        private static void ClipByPlane(
+            float3 planeNormal, 
+            float3 planePos, 
+            NativeList<float3> inputPolygon, 
+            NativeList<float3> outputPolygon)
+        {
+            if (inputPolygon.Length == 0) return;
+
+            outputPolygon.Clear();
+    
+            float3 vPrev = inputPolygon[inputPolygon.Length - 1];
+            float dPrev = math.dot(planeNormal, vPrev - planePos);
+
+            for (int i = 0; i < inputPolygon.Length; i++)
+            {
+                float3 vCurr = inputPolygon[i];
+                float dCurr = math.dot(planeNormal, vCurr - planePos);
+
+                // 判断两点相对于平面的位置
+                // d > 0: 在平面外（被裁剪掉的方向，视具体法线定义而定，这里假设法线指向内部为正）
+                // 实际上 Sutherland-Hodgman 通常定义法线指向保留的一侧
+        
+                // Case 1: Prev 在内，Curr 在内 -> 保留 Curr
+                if (dPrev >= 0 && dCurr >= 0)
+                {
+                    outputPolygon.Add(vCurr);
+                }
+                // Case 2: Prev 在内，Curr 在外 -> 计算交点，保留交点
+                else if (dPrev >= 0 && dCurr < 0)
+                {
+                    float3 intersection = LinePlaneIntersection(vPrev, vCurr, planePos, planeNormal);
+                    outputPolygon.Add(intersection);
+                }
+                // Case 3: Prev 在外，Curr 在内 -> 计算交点，保留交点和 Curr
+                else if (dPrev < 0 && dCurr >= 0)
+                {
+                    float3 intersection = LinePlaneIntersection(vPrev, vCurr, planePos, planeNormal);
+                    outputPolygon.Add(intersection);
+                    outputPolygon.Add(vCurr);
+                }
+                // Case 4: 都在外 -> 都不保留
+
+                vPrev = vCurr;
+                dPrev = dCurr;
+            }
+        }
+
+        private static float3 LinePlaneIntersection(float3 p1, float3 p2, float3 planePos, float3 planeNormal)
+        {
+            float3 u = p2 - p1;
+            float dot = math.dot(planeNormal, u);
+            if (math.abs(dot) < 1e-6f) return p1; // 平行，防除零
+            float t = math.dot(planeNormal, planePos - p1) / dot;
+            return p1 + u * t;
+        }
+        
+        public static void BuildManifold(
+            NativeConvex convexA, 
+            NativeConvex convexB, 
+            float3 epaNormal, // 必须是从 A 指向 B 的法线
+            ref NativeList<ManifoldPoint> manifolds)
+        {
+            manifolds.Clear();
+
+            // 临时内存分配
+            var polyA = new NativeList<float3>(8, Allocator.Temp);
+            var polyB = new NativeList<float3>(8, Allocator.Temp);
+
+            // 1. 寻找特征面
+            // A 的特征面：寻找法线与 epaNormal 最一致的面
+            GetFeatureFace(convexA, epaNormal, ref polyA, out float3 normA, out float3 centerA);
+            
+            // B 的特征面：寻找法线与 -epaNormal 最一致的面
+            GetFeatureFace(convexB, -epaNormal, ref polyB, out float3 normB, out float3 centerB);
+
+            // 2. 确定参考面 (Reference) 和 入射面 (Incident)
+            // 通常选择与碰撞法线“平行度”更差的那个面作为入射面（Incident），因为它更像是在戳另一个面
+            // 这里简化判断：看法线投影长度
+            
+            bool flip = false;
+            NativeList<float3> refPoly; // 参考面多边形
+            NativeList<float3> incPoly; // 入射面多边形
+            float3 refNormal;
+            float3 refCenter;
+
+            // 这里的逻辑是：谁的法线更平行于碰撞轴，谁就是参考面
+            if (math.abs(math.dot(normA, epaNormal)) > math.abs(math.dot(normB, epaNormal)))
+            {
+                // A 是参考面
+                refPoly = polyA;
+                incPoly = polyB;
+                refNormal = normA;
+                refCenter = centerA;
+                flip = false; 
+            }
+            else
+            {
+                // B 是参考面
+                refPoly = polyB;
+                incPoly = polyA;
+                refNormal = normB;
+                refCenter = centerB;
+                flip = true;
             }
 
-            // 边 AB 区域
-            float vc = d1 * d4 - d3 * d2;
-            if (vc <= 0f && d1 >= 0f && d3 <= 0f)
+            // 3. 准备裁剪
+            // 我们将把入射面(Inc) 裁剪到 参考面(Ref) 的棱柱体内
+            
+            // 复制一份入射面作为初始裁剪多边形
+            var clippedPoly = new NativeList<float3>(incPoly.Length + 4, Allocator.Temp);
+            for(int i=0; i<incPoly.Length; i++) clippedPoly.Add(incPoly[i]);
+            
+            var tempPoly = new NativeList<float3>(clippedPoly.Length, Allocator.Temp);
+
+            // 4. 对参考面的每一条边，构建侧平面进行裁剪
+            // 参考面的顶点顺序应该是逆时针或顺时针，这决定了侧平面的法线方向
+            // 假设 GetFeatureFace 拿出的顶点是逆时针的，面法线向外
+            
+            float3 vPrev = refPoly[refPoly.Length - 1];
+            for (int i = 0; i < refPoly.Length; i++)
             {
-                float t = d1 / (d1 - d3);
-                u = 1f - t; v = t; w = 0f;
-                return a + t * ab;
+                float3 vCurr = refPoly[i];
+                float3 edge = vCurr - vPrev;
+                
+                // 计算指向参考面内部的侧平面法线
+                // 侧平面法线 = Cross(RefNormal, Edge).Normalize()
+                // 注意：这里需要确认具体的叉乘顺序以指向内部
+                float3 sidePlaneNormal = math.normalize(math.cross(refNormal, edge));
+
+                // 执行裁剪
+                ClipByPlane(sidePlaneNormal, vCurr, clippedPoly, tempPoly);
+                
+                // 交换 Buffer 准备下一轮
+                clippedPoly.Clear();
+                for(int k=0; k<tempPoly.Length; k++) clippedPoly.Add(tempPoly[k]);
+                tempPoly.Clear();
+
+                vPrev = vCurr;
             }
 
-            float3 cp = -c;
-            float d5 = math.dot(ab, cp);
-            float d6 = math.dot(ac, cp);
-
-            // 顶点 C 区域
-            if (d6 >= 0f && d5 <= d6)
+            // 5. 最后一步：只保留在参考面“下方”的点（真正的穿透点）
+            // 参考面方程： Dot(n, p) - d = 0
+            // 深度 = Dot(n, p - center)
+            // 这里的 refNormal 是指向外部的
+            
+            // 我们需要保留在参考面“里面”的点。如果 Ref 是 A，Normal A 向外。Inc 是 B，B 的点应该在 A 内部。
+            // 所以 Dot(refNormal, point - refCenter) 应该 < 0
+            
+            for (int i = 0; i < clippedPoly.Length; i++)
             {
-                u = 0f; v = 0f; w = 1f;
-                return c;
+                float3 p = clippedPoly[i];
+                float dist = math.dot(refNormal, p - refCenter);
+
+                // 如果距离为负，说明点在参考面下方（发生穿透）
+                // 设置一个小容差 (Positive Tolerance) 允许轻微浮点误差
+                if (dist <= 0.01f) 
+                {
+                    // 投影点作为参考面上的点
+                    float3 projectedPoint = p - refNormal * dist;
+                    
+                    ManifoldPoint mp = new ManifoldPoint();
+                    mp.Normal = epaNormal;
+                    mp.Depth = -dist; // 深度通常取正值
+
+                    if (!flip)
+                    {
+                        // Ref 是 A，Inc 是 B
+                        // 裁剪后的点 p 来自 B (Incident)
+                        mp.ContactB = p;
+                        mp.ContactA = projectedPoint; // A 上的对应点
+                    }
+                    else
+                    {
+                        // Ref 是 B，Inc 是 A
+                        // 裁剪后的点 p 来自 A (Incident)
+                        mp.ContactA = p;
+                        mp.ContactB = projectedPoint; // B 上的对应点
+                    }
+                    
+                    manifolds.Add(mp);
+                }
             }
 
-            // 边 AC 区域
-            float vb = d5 * d2 - d1 * d6;
-            if (vb <= 0f && d2 >= 0f && d6 <= 0f)
-            {
-                float t = d2 / (d2 - d6);
-                u = 1f - t; v = 0f; w = t;
-                return a + t * ac;
-            }
-
-            // 边 BC 区域
-            float va = d3 * d6 - d5 * d4;
-            if (va <= 0f && (d4 - d3) >= 0f && (d5 - d6) >= 0f)
-            {
-                float t = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-                u = 0f; v = 1f - t; w = t;
-                return b + t * (c - b);
-            }
-
-            // 面内部区域
-            float denom = 1f / (va + vb + vc);
-            v = vb * denom;
-            w = vc * denom;
-            u = 1f - v - w;
-            return u * a + v * b + w * c;
+            // 清理
+            polyA.Dispose();
+            polyB.Dispose();
+            clippedPoly.Dispose();
+            tempPoly.Dispose();
         }
     }
+    
+    
+    
     [BurstCompile]
     public struct SupportPoint
     {
@@ -443,7 +622,7 @@ namespace Collision
         public int BodyB;
     }
     
-
+    [BurstCompile]
     public struct EPAFace
     {
         public SupportPoint A, B, C;
@@ -475,7 +654,7 @@ namespace Collision
             Alive = true;
         }
     }
-
+    [BurstCompile]
     public struct EPAEdge
     {
         public SupportPoint Start;

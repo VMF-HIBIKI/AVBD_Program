@@ -168,7 +168,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 58190ea986db463481ed23e277730dc4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  isStatic: 1
+  isStatic: 0
   mass: 1
   friction: 0
   startK: 10000
@@ -290,7 +290,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 58190ea986db463481ed23e277730dc4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  isStatic: 1
+  isStatic: 0
   mass: 1
   friction: 0
   startK: 10000
@@ -412,7 +412,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 58190ea986db463481ed23e277730dc4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  isStatic: 1
+  isStatic: 0
   mass: 1
   friction: 0
   startK: 10000
@@ -534,7 +534,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 58190ea986db463481ed23e277730dc4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  isStatic: 1
+  isStatic: 0
   mass: 1
   friction: 0
   startK: 10000
@@ -933,7 +933,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   isStatic: 1
-  mass: 10
+  mass: 1
   friction: 0
   startK: 100
   position:
@@ -1012,12 +1012,12 @@ MonoBehaviour:
   DrawOctree: 1
   DrawConvex: 0
   DrawCollision: 1
-  alpha: 0.938
-  gamma: 0.184
-  friction: 0.99
+  alpha: 0.357
+  gamma: 0.245
+  friction: 0.425
   beta: 6000
   Gravity: 3
-  ConstraintSolverIteratorCount: 40
+  ConstraintSolverIteratorCount: 150
 --- !u!4 &1336352153
 Transform:
   m_ObjectHideFlags: 0
@@ -1079,7 +1079,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 58190ea986db463481ed23e277730dc4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  isStatic: 1
+  isStatic: 0
   mass: 1
   friction: 0
   startK: 10000
@@ -1289,7 +1289,6 @@ GameObject:
   - component: {fileID: 2146153130}
   - component: {fileID: 2146153129}
   - component: {fileID: 2146153128}
-  - component: {fileID: 2146153131}
   m_Layer: 0
   m_Name: Cube (5)
   m_TagString: Untagged
@@ -1324,10 +1323,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 58190ea986db463481ed23e277730dc4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  isStatic: 1
+  isStatic: 0
   mass: 1
   friction: 0
-  startK: 10000
+  startK: 10000000
   position:
     x: 0
     y: 0
@@ -1400,27 +1399,6 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2146153126}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
---- !u!65 &2146153131
-BoxCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2146153126}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 3
-  m_Size: {x: 1, y: 1, z: 1}
-  m_Center: {x: 0, y: 0.00000047683716, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

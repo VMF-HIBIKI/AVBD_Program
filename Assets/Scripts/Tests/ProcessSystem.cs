@@ -185,6 +185,7 @@ public class ProcessSystem : MonoBehaviour
 
     private void LateUpdate()
     {
+        LateUpdateBodies();
     }
 
     private void UpdateBroadPhaseProcess()
@@ -253,7 +254,7 @@ public class ProcessSystem : MonoBehaviour
             var pair = CollisionPairs[i];
             var a = Bodies[pair.x];
             var b = Bodies[pair.y];
-            Debug.Log($"CollisionPair: {a.name} <-> {b.name}");
+            //Debug.Log($"CollisionPair: {a.name} <-> {b.name}");
         }
     }
 
@@ -302,54 +303,17 @@ public class ProcessSystem : MonoBehaviour
             var convexPair = Pair.Value;
             if (GJK_EPA.DetectedCollisionAndResolve(convexPair.Item1, convexPair.Item2, out var result1))
             {
-                if(GJK_EPA.DetectedCollisionAndResolve(convexPair.Item2,convexPair.Item1,out var result2))
-                {
-                    result2.BodyA = Pair.Key.Item2;
-                    result2.BodyB = Pair.Key.Item1;
-                }
                 result1.BodyA = Pair.Key.Item1;
                 result1.BodyB = Pair.Key.Item2;
-
+                var manifolds = new NativeList<ManifoldPoint>(4, Allocator.Temp);
+                GJK_EPA.BuildManifold(convexPair.Item1, convexPair.Item2, result1.Normal, ref manifolds);
+                /*
                 if (result2.Depth >= 0.9 * result1.Depth)
                 {
                     EpaResults.Add(result1);
-                    /*
-                    if (Bodies[result1.BodyA].GetComponent<Collider>() &&
-                        Bodies[result1.BodyB].GetComponent<Collider>())
-                    {
-                        bool isOverlapping = Physics.ComputePenetration(
-                            Bodies[result1.BodyA].GetComponent<Collider>(), Bodies[result1.BodyA].position, Bodies[result1.BodyA].rotation,
-                            Bodies[result1.BodyB].GetComponent<Collider>(), Bodies[result1.BodyB].position, Bodies[result1.BodyA].rotation,
-                            out Vector3 direction, out float distance
-                        );
-                        if (isOverlapping)
-                        {
-                            EPAResult newResult = new EPAResult();
-                            newResult.BodyA = result1.BodyA;
-                            newResult.BodyB = result1.BodyB;
-                            newResult.HasResult = true;
-                            newResult.ContactA = result1.ContactA;
-                            newResult.ContactB = result2.ContactA;
-                            newResult.Normal = direction;
-                            newResult.Depth = distance;
-                            Bodies[result1.BodyA].AddForce(newResult,false,alpha,gamma);
-                            Bodies[result1.BodyB].AddForce(newResult,true,alpha,gamma);
-                        }
-
-                    }
-                    else
-                    {
-                        Bodies[result1.BodyA].AddForce(result1,false,alpha,gamma);
-                        Bodies[result1.BodyB].AddForce(result1,true,alpha,gamma);
-                    }*/
-                    
                     Bodies[result1.BodyA].AddForce(result1,false,alpha,gamma);
                     Bodies[result1.BodyB].AddForce(result1,true,alpha,gamma);
-                    /*
-                    Bodies[result1.BodyA].AddResult(result1);
-                    Bodies[result1.BodyA].AddIsBodyB(false);
-                    Bodies[result1.BodyB].AddResult(result1);
-                    Bodies[result1.BodyB].AddIsBodyB(true);*/
+
                     Debug.Log(result1.ContactA.xyz+","+result1.ContactB.xyz);
                     Debug.Log(result1.Normal.xyz);
                 }
@@ -358,14 +322,44 @@ public class ProcessSystem : MonoBehaviour
                     EpaResults.Add(result2);
                     Bodies[result2.BodyA].AddForce(result2,false,alpha,gamma);
                     Bodies[result2.BodyB].AddForce(result2,true,alpha,gamma);
-                    /*
-                    Bodies[result2.BodyA].AddResult(result2);
-                    Bodies[result2.BodyA].AddIsBodyB(false);
-                    Bodies[result2.BodyB].AddResult(result2);
-                    Bodies[result2.BodyB].AddIsBodyB(true);*/
+
                     Debug.Log(result2.ContactB.xyz+","+result2.ContactA.xyz);
                     Debug.Log(result2.Normal.xyz);
+                }*/
+                if (manifolds.Length > 0)
+                {
+                    // 使用 Manifold 中的每一个点施加力
+                    foreach (var point in manifolds)
+                    {
+                        // 构造一个临时的 EPAResult 传给你的 AddForce (或者修改 AddForce 接受 ManifoldPoint)
+                        EPAResult tempResult = new EPAResult();
+                        tempResult.BodyA = result1.BodyA;
+                        tempResult.BodyB = result1.BodyB;
+                        tempResult.Normal = result1.Normal;
+                        tempResult.Depth = point.Depth;       // 使用流形点的深度
+                        tempResult.ContactA = point.ContactA; // 使用流形点 A
+                        tempResult.ContactB = point.ContactB; // 使用流形点 B
+                        if (!Bodies[result1.BodyA].isStatic)
+                        {
+                            Bodies[result1.BodyA].AddForce(tempResult, false, alpha, gamma);
+                        }
+
+                        if (!Bodies[result1.BodyB].isStatic)
+                        {
+                            Bodies[result1.BodyB].AddForce(tempResult, true, alpha, gamma);
+                        }
+                    }
+                    Debug.Log("FocesCount:"+Bodies[result1.BodyA].name+" "+Bodies[result1.BodyA].Forces.Count);
+                    Debug.Log("FocesCount:"+Bodies[result1.BodyB].name+" "+Bodies[result1.BodyB].Forces.Count);
                 }
+                else
+                {
+                    // 如果裁剪失败（极少数情况），回退使用 EPA 的单点结果
+                    Bodies[result1.BodyA].AddForce(result1, false, alpha, gamma);
+                    Bodies[result1.BodyB].AddForce(result1, true, alpha, gamma);
+                }
+    
+                manifolds.Dispose();
             }
             else
             {
@@ -394,7 +388,14 @@ public class ProcessSystem : MonoBehaviour
         }
         
     }
-    
+
+    private void LateUpdateBodies()
+    {
+        foreach (var body in Bodies)
+        {
+            body.Forces.Clear();
+        }
+    }
     
     void OnDrawGizmos()
     {

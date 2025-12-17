@@ -126,7 +126,7 @@ public class DetectionBody : MonoBehaviour
             else
             {
                 force.Lambda = oldForce.Lambda * alpha * gamma; // 衰减旧力，避免积累错误
-            }    // 🔥 热启动核心
+            }    // 热启动核心
             force.Friction = oldForce.Friction;
         }
         else
@@ -257,7 +257,6 @@ public class DetectionBody : MonoBehaviour
             int hash = HashContact(f.otherBodyId, f.Contact.ContactWorldSpacePositionA, f.Contact.ContactWorldSpacePositionB);
             lastFrameForces[hash] = f;
         }
-
         Forces.Clear();
     }
     
