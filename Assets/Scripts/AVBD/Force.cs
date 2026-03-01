@@ -91,7 +91,7 @@ namespace AVBD
             float FrictionBound = math.abs(Lambda.x) * Friction;
             Fmin = new float3(-1000000, -FrictionBound, -FrictionBound);
             Fmax = new float3(0, FrictionBound, FrictionBound);
-            // Check if the contact is sticking, so that on the next frame we can use the old contact points for better static friction handling
+         
             Contact.Stick = math.abs(Lambda.y) < FrictionBound && math.abs(Contact.C0.y) < 0.02f;
         }
     }

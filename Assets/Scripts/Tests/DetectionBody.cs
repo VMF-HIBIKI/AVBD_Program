@@ -118,7 +118,7 @@ public class DetectionBody : MonoBehaviour
         {
             force = oldForce;
             force.Contact.Initialize(normal, position, contactA, contactB);
-            force.K = math.max(new float3(-startK,-startK,-startK),oldForce.K * gamma);
+            force.K = math.min(new float3(-startK,-startK,-startK),oldForce.K * gamma);
             if (oldForce.Contact.Stick)
             {
                 force.Lambda = oldForce.Lambda; // 完全复用
@@ -159,7 +159,7 @@ public class DetectionBody : MonoBehaviour
             float3 rhs = math.mul(lhs, predictedPosition - position);
 
             float3x3 R = new float3x3(rotation);
-            float3x3 Rlhs = math.mul(math.mul(math.transpose(R), InertiaTensor), R);
+            float3x3 Rlhs = math.mul(math.mul(R, InertiaTensor), math.transpose(R));
             Rlhs /= powT;
 
             float3 Rrhs = AngularFormQuaternion(predictedRotation, rotation, Time.deltaTime);
@@ -184,17 +184,22 @@ public class DetectionBody : MonoBehaviour
 
             float[] Arhs = { rhs[0], rhs[1], rhs[2], Rrhs[0], Rrhs[1], Rrhs[2] };
             float3x3 Identity = Diagonal(1 / powT, 1 / powT, 1 / powT);
-            MakeFloat6x6(lhs, Identity, Identity, Rlhs, out float[,] ALhs);
+
+
+            float3x3 Zero3x3 = new float3x3(float3.zero, float3.zero, float3.zero);
+
+            MakeFloat6x6(lhs, Zero3x3, Zero3x3, Rlhs, out float[,] ALhs);
             LDLSolve6x6(ALhs, Arhs, out float[] Result);
 
             predictedPosition -= new float3(Result[0], Result[1], Result[2]);
             
-            Quaternion Deltaq = new Quaternion(0.5f * Result[3],0.5f *  Result[4], 0.5f * Result[5], 0.0f); //(LDLSolve(Rlhs, Rrhs),0.0);
+            Quaternion Deltaq = new Quaternion(0.5f * Result[3], 0.5f * Result[4], 0.5f * Result[5], 0.0f);
             var tempRotation = new Quaternion(predictedRotation.x - Deltaq.x * predictedRotation.x,
                 predictedRotation.y - Deltaq.y * predictedRotation.y,
                 predictedRotation.z - Deltaq.z * predictedRotation.z,
                 predictedRotation.w - Deltaq.w * predictedRotation.w);
             predictedRotation = math.normalize(tempRotation);
+            
             /*
             Quaternion dq = new Quaternion(0.5f * Result[3], 0.5f * Result[4], 0.5f * Result[5], 0);
             Quaternion temp = new Quaternion(
@@ -283,35 +288,19 @@ public class DetectionBody : MonoBehaviour
 
     float3 CalculatorDeltaW()
     {
-        /*
-        // qDelta = q_pred * inverse(q)
-        Quaternion inv = Quaternion.Inverse(rotation);
-        Quaternion qDelta = predictedRotation * inv;
-        qDelta = NormalizeQuaternion(qDelta);
-
-        // 确保数值稳定： clamp w
-        qDelta.w = math.clamp(qDelta.w, -1f, 1f);
-
-        // angle = 2 * acos(w)
-        float angle = 2f * Mathf.Acos(qDelta.w);
-        float s = math.sqrt(1f - qDelta.w * qDelta.w);
-
-        if (s < 1e-6f)
-        {
-            // 角度很小，近似： vector part ≈ 0.5 * axis * angle
-            return 2f * new float3(qDelta.x, qDelta.y, qDelta.z);
-        }
-        else
-        {
-            float3 axis = new float3(qDelta.x / s, qDelta.y / s, qDelta.z / s);
-            return axis * angle;
-        }*/
-
+        // 【旧版本 - 错误】：简单的分量乘积，没有物理意义
         Quaternion invRotation = math.inverse(rotation);
         float3 DeltaW = new float3(2 * predictedRotation.x * invRotation.x, 2 * predictedRotation.y * invRotation.y,
             2 * predictedRotation.z * invRotation.z);
-
         return DeltaW;
+
+        // 【新版本 - 参考文章】：2 * q_next.xyz * q_prev_inverse.xyz
+        // 先计算 q_prev_inverse（共轭四元数，因为单位四元数）
+        //quaternion invRotation = math.inverse(rotation);
+        // 四元数乘法：q_temp = q_next * q_prev_inverse
+        //quaternion temp = math.mul(predictedRotation, invRotation);
+        // 取结果的 vector part 并乘以 2
+        //return 2.0f * new float3(temp.value.x, temp.value.y, temp.value.z);
     }
     
     float3x3 Diagonal(float m00, float m11, float m22)
@@ -346,7 +335,7 @@ public class DetectionBody : MonoBehaviour
         float3 w = 0.0f;
         w.x = qPrev.w * q.x - qPrev.x * q.w - qPrev.y * q.z + qPrev.z * q.y;
         w.y = qPrev.w * q.y + qPrev.x * q.z - qPrev.y * q.w - qPrev.z * q.x;
-        w.z = qPrev.w * q.z - qPrev.x * q.y + qPrev.y * q.y - qPrev.z * q.w;
+        w.z = qPrev.w * q.z - qPrev.x * q.y + qPrev.y * q.x - qPrev.z * q.w; // 修复：qPrev.y * q.x 而不是 qPrev.y * q.y
 
         return 2 / deltaTime * w;
         
