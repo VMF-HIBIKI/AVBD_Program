@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Convex.DataStructures;
 using Unity.Burst;
 using Unity.Collections;
@@ -342,10 +342,11 @@ namespace Collision
             return new SupportPoint(pa,pb);
         }
         
-        // 获取特征面的顶点列表（世界坐标）和面的信息
+        // 获取特征面的顶点列表（世界坐标）和面的信息。
+        // 自动合并法线几乎相同的共面三角形，使 Cube 的每个面返回 4 个顶点而非 3 个。
         private static void GetFeatureFace(
             in NativeConvex convex, 
-            float3 searchDir, // 指向凸包外部的法线方向
+            float3 searchDir,
             ref NativeList<float3> faceVertices, 
             out float3 faceNormal, 
             out float3 faceCenter)
@@ -354,11 +355,8 @@ namespace Collision
             faceNormal = float3.zero;
             faceCenter = float3.zero;
 
-            // 1. 遍历所有面，找到法线与 searchDir 点积最大的面
             int bestPlaneIndex = -1;
             float maxDot = -float.MaxValue;
-
-            // 缓存旋转矩阵，用于将局部法线转世界
             float3x3 rotMatrix = new float3x3(convex.Transform.rot);
 
             for (int i = 0; i < convex.Hull.PlaneCount; i++)
@@ -366,7 +364,6 @@ namespace Collision
                 NativePlane plane = convex.Hull.Planes[i];
                 float3 worldNormal = math.mul(rotMatrix, plane.Normal);
                 float dot = math.dot(worldNormal, searchDir);
-
                 if (dot > maxDot)
                 {
                     maxDot = dot;
@@ -377,29 +374,74 @@ namespace Collision
 
             if (bestPlaneIndex == -1) return;
 
-            // 2. 提取该面的所有顶点
-            NativePlane bestPlane = convex.Hull.Planes[bestPlaneIndex];
-            int startHeIndex = bestPlane.FirstHalfedge;
-            int currHeIndex = startHeIndex;
-    
-            // 遍历半边循环
-            do
+            // 收集所有法线与 best 几乎平行的面（共面三角形合并）
+            const float coplanarThreshold = 0.999f;
+            var positions = new NativeList<float3>(8, Allocator.Temp);
+
+            for (int pi = 0; pi < convex.Hull.PlaneCount; pi++)
             {
-                NativeHalfEdge he = convex.Hull.Edges[currHeIndex];
-                NativeVertex v = convex.Hull.Vertices[he.StartVertex];
+                float3 wn = math.mul(rotMatrix, convex.Hull.Planes[pi].Normal);
+                if (math.dot(wn, faceNormal) < coplanarThreshold) continue;
 
-                // 局部转世界： Scale -> Rotate -> Translate
-                float3 localPos = v.Position * convex.Scale;
-                float3 worldPos = math.transform(convex.Transform, localPos);
+                int start = convex.Hull.Planes[pi].FirstHalfedge;
+                int curr = start;
+                do
+                {
+                    NativeHalfEdge he = convex.Hull.Edges[curr];
+                    float3 wp = math.transform(convex.Transform,
+                                               convex.Hull.Vertices[he.StartVertex].Position * convex.Scale);
+                    bool dup = false;
+                    for (int k = 0; k < positions.Length; k++)
+                    {
+                        if (math.lengthsq(positions[k] - wp) < 1e-6f) { dup = true; break; }
+                    }
+                    if (!dup) positions.Add(wp);
+                    curr = he.NextHalfedge;
+                } while (curr != start);
+            }
 
-                faceVertices.Add(worldPos);
-                faceCenter += worldPos;
+            // 计算中心
+            for (int i = 0; i < positions.Length; i++)
+                faceCenter += positions[i];
+            faceCenter /= math.max(positions.Length, 1);
 
-                currHeIndex = he.NextHalfedge;
-            } 
-            while (currHeIndex != startHeIndex);
+            // 按角度排序形成凸多边形
+            if (positions.Length > 2)
+            {
+                float3 t1, t2;
+                if (math.abs(faceNormal.y) > 0.9f)
+                    t1 = math.normalizesafe(math.cross(faceNormal, new float3(1, 0, 0)));
+                else
+                    t1 = math.normalizesafe(math.cross(faceNormal, new float3(0, 1, 0)));
+                t2 = math.cross(faceNormal, t1);
 
-            faceCenter /= faceVertices.Length;
+                var angles = new NativeArray<float>(positions.Length, Allocator.Temp);
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    float3 d = positions[i] - faceCenter;
+                    angles[i] = math.atan2(math.dot(d, t2), math.dot(d, t1));
+                }
+                for (int i = 1; i < positions.Length; i++)
+                {
+                    float ak = angles[i];
+                    float3 vk = positions[i];
+                    int j = i - 1;
+                    while (j >= 0 && angles[j] > ak)
+                    {
+                        angles[j + 1] = angles[j];
+                        positions[j + 1] = positions[j];
+                        j--;
+                    }
+                    angles[j + 1] = ak;
+                    positions[j + 1] = vk;
+                }
+                angles.Dispose();
+            }
+
+            for (int i = 0; i < positions.Length; i++)
+                faceVertices.Add(positions[i]);
+
+            positions.Dispose();
         }
         
         // 用一个平面裁剪多边形，保留平面“内侧”的点

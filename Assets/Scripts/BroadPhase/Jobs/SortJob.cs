@@ -8,12 +8,14 @@ public struct SortJob : IJob
 {
     public NativeArray<ulong> MortonCodes;
     public NativeArray<int> ObjectIndices;
+    public int Count;
 
     public void Execute()
     {
-        var pairs = new NativeArray<KeyValuePair>(MortonCodes.Length, Allocator.Temp);
+        int n = Count;
+        var pairs = new NativeArray<KeyValuePair>(n, Allocator.Temp);
 
-        for (int i = 0; i < MortonCodes.Length; i++)
+        for (int i = 0; i < n; i++)
         {
             pairs[i] = new KeyValuePair
             {
@@ -22,11 +24,9 @@ public struct SortJob : IJob
             };
         }
 
-        // 排序
         pairs.Sort(new KeyComparer());
 
-        // 写回结果
-        for (int i = 0; i < MortonCodes.Length; i++)
+        for (int i = 0; i < n; i++)
         {
             MortonCodes[i] = pairs[i].Key;
             ObjectIndices[i] = pairs[i].Value;
